@@ -396,7 +396,7 @@ def test_run_pipeline_fetches_transcripts_when_enabled(monkeypatch):
 
     captured = {}
 
-    def fake_batch(video_ids):
+    def fake_batch(video_ids, languages=None):
         captured["ids"] = list(video_ids)
         return {vid: f"transcript for {vid}" for vid in video_ids}
 

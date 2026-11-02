@@ -67,6 +67,9 @@ def _agent_result() -> dict:
         "script_analysis": _FIXTURE["script_analysis"],
         "title_formulas": _FIXTURE["title_formulas"],
         "game_plan": _FIXTURE["game_plan"],
+        # Corpo Explicado fork sections (strict schema: present, may be null).
+        "audience_demand": None,
+        "claims_to_check": None,
     })
 
 

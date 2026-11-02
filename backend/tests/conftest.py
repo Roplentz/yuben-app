@@ -22,3 +22,14 @@ def _fresh_adapter_detection():
     forget_detection()
     yield
     forget_detection()
+
+
+@pytest.fixture(autouse=True)
+def _upstream_market(monkeypatch, request):
+    """Upstream tests assert the US/Europe ("global") market; this fork defaults
+    to Brazil. Tests that exercise the Brazilian market opt out by setting
+    ``YUBEN_MARKET`` themselves (see test_corpo_explicado.py)."""
+    if "corpo_explicado" not in request.node.nodeid:
+        monkeypatch.setenv("YUBEN_MARKET", "global")
+        monkeypatch.setenv("YUBEN_COMMENTS", "0")
+    yield

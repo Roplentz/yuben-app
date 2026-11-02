@@ -172,6 +172,45 @@
           }
         }
       ]
+    },
+    "audience_demand": {
+      "description": "Optional (Corpo Explicado fork). Content ideas grounded in a verbatim viewer comment; the backend drops entries whose comment it cannot find under that video.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["video_id", "comment", "question", "pauta"],
+            "properties": {
+              "video_id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{11}$" },
+              "comment": { "type": "string" },
+              "question": { "type": "string" },
+              "pauta": { "type": "string" }
+            }
+          }
+        }
+      ]
+    },
+    "claims_to_check": {
+      "description": "Optional (Corpo Explicado fork). Health claims from transcripts with the PubMed query to check them; the backend runs PubMed and attaches every number.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["video_id", "claim", "pubmed_query"],
+            "properties": {
+              "video_id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{11}$" },
+              "claim": { "type": "string" },
+              "pubmed_query": { "type": "string" }
+            }
+          }
+        }
+      ]
     }
   }
 }

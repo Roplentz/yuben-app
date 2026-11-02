@@ -123,6 +123,8 @@ export default function Results() {
         <AnalysisTabs
           titleAnalysis={result.title_analysis}
           scriptAnalysis={result.script_analysis}
+          audienceDemand={result.audience_demand ?? null}
+          evidenceChecks={result.evidence_checks ?? null}
           videos={result.top_videos}
         />
       </section>

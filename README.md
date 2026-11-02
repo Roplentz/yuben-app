@@ -22,6 +22,19 @@
 
 ---
 
+## 🇧🇷 Fork Corpo Explicado
+
+Este fork adapta o YuBen para pesquisar o nicho de saúde e corpo humano em português:
+
+- **Mercado Brasil por padrão** — busca com `regionCode=BR` e `relevanceLanguage=pt`, canais brasileiros primeiro, transcrições em português e toda a análise escrita em pt-BR. Para voltar ao comportamento original: `YUBEN_MARKET=global`.
+- **Pautas pedidas pela audiência** — com a análise de roteiro ligada, o app lê os comentários mais relevantes dos 10 principais outliers (1 unidade de cota cada) e transforma dúvidas e pedidos em pautas. Cada pauta cita um comentário real; se o trecho não existir naquele vídeo, o backend descarta. Desligar: `YUBEN_COMMENTS=0`.
+- **Checagem de evidência no PubMed** — a IA aponta afirmações de saúde feitas nos vídeos e sugere a busca; o backend consulta o PubMed (E-utilities) e anexa o número de artigos e os PMIDs reais.
+- Tudo aparece na nova aba **Pautas & Evidências** do resultado.
+
+A regra de confiança do projeto original vale para tudo isso: a IA escreve só o texto; IDs, números, comentários e PMIDs vêm das APIs.
+
+---
+
 **YuBen** is a local-first web app for YouTube content research. Type a topic and it finds *outlier* videos — ones that earn far more views than their channel's subscriber count predicts — then explains what makes them win: a ranked watch list, title-pattern analysis, and a concrete game plan for your own video.
 
 The core signal is **VSR (views ÷ subscribers)**. In the demo run above, a 140k-subscriber channel pulled 2.1M views (15×) while a 6.2M-subscriber channel managed 4.1M on the same topic (0.6×) — the multiple, not the raw view count, tells you the *idea* carried the video rather than the audience. Those are the videos worth studying.

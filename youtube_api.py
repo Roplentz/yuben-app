@@ -560,3 +560,51 @@ def get_channel_median_views(
     )
 
     return (median_views, video_count_sampled, sample_window_days)
+
+
+# ---------------------------------------------------------------------------
+# Comments (Corpo Explicado fork) — audience-demand mining
+# ---------------------------------------------------------------------------
+
+def get_top_comments(video_id: str, max_results: int = 40) -> list:
+    """Top-level comments of one video, most relevant first (plain text).
+
+    Best effort: comments disabled, a private video or any other per-video error
+    returns ``[]`` instead of failing the run. A quota error marks the run like
+    every other call here and also returns ``[]``.
+
+    API cost: 1 unit per call (one page of up to 100 threads).
+    """
+    service = build_service()
+    try:
+        response = (
+            service.commentThreads()
+            .list(
+                part="snippet",
+                videoId=video_id,
+                order="relevance",
+                textFormat="plainText",
+                maxResults=max(1, min(int(max_results), 100)),
+            )
+            .execute()
+        )
+    except HttpError as e:
+        global _quota_hit
+        status = getattr(getattr(e, "resp", None), "status", None)
+        if status in (403, 429) and set(http_error_reasons(e)) & _QUOTA_REASONS:
+            _quota_hit = True
+        logger.info("comments unavailable for %s: %s", video_id, http_error_note(e))
+        return []
+    except Exception as e:  # network etc. — never sink the run
+        logger.info("comments fetch failed for %s: %s", video_id, type(e).__name__)
+        return []
+
+    comments = []
+    for item in response.get("items", []):
+        top = ((item.get("snippet") or {}).get("topLevelComment") or {}).get("snippet") or {}
+        text = (top.get("textDisplay") or top.get("textOriginal") or "").strip()
+        if text:
+            comments.append(
+                {"text": text, "likes": int(top.get("likeCount") or 0)}
+            )
+    return comments

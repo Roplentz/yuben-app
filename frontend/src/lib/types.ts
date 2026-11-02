@@ -165,6 +165,31 @@ export interface GamePlan {
   dont: string
 }
 
+// --- Corpo Explicado fork --------------------------------------------------
+/** A content idea grounded in a verbatim viewer comment (backend-verified). */
+export interface AudienceDemand {
+  video_id: string
+  comment: string
+  question: string
+  pauta: string
+}
+
+export interface AgentClaim {
+  video_id: string
+  claim: string
+  pubmed_query: string
+}
+
+/** A claim with the PubMed numbers the backend retrieved (null = not reached). */
+export interface EvidenceCheck {
+  video_id: string
+  claim: string
+  pubmed_query: string
+  pubmed_hits?: number | null
+  pmids?: string[]
+  search_url: string
+}
+
 export interface ResultMeta {
   window: string
   filter: string
@@ -192,6 +217,8 @@ export interface ResearchResult {
   script_analysis: ScriptAnalysis | null
   title_formulas?: TitleFormula[] | null
   game_plan?: GamePlan | null
+  audience_demand?: AudienceDemand[] | null
+  evidence_checks?: EvidenceCheck[] | null
 }
 
 // --- Config / Adapter / History -------------------------------------------
@@ -249,6 +276,8 @@ export interface AgentResult {
   script_analysis: ScriptAnalysis | null
   title_formulas?: TitleFormula[] | null
   game_plan?: GamePlan | null
+  audience_demand?: AudienceDemand[] | null
+  claims_to_check?: AgentClaim[] | null
 }
 
 // --- API envelopes ---------------------------------------------------------

@@ -31,6 +31,7 @@ B5 can lift it straight in; pipeline internals live under ``meta["pipeline"]``::
         "params": {...}, "published_after": iso, "snapshot_utc": iso,
         "kept": M, "after_outperformance": K2,
         "transcripts": {video_id: text|None} | None,   # when analyze_scripts
+        "comments": {video_id: [{text, likes}]} | None, # when analyze_scripts
       }
     }
 
@@ -63,6 +64,12 @@ logger = logging.getLogger("yuben.pipeline")
 # Cap transcript fetches so a live run never balloons; transcripts feed the
 # agent's script analysis, which only looks at the curated head anyway.
 _MAX_TRANSCRIPTS = 15
+
+# Comment mining (Corpo Explicado fork): one commentThreads call (1 quota unit)
+# per video for the curated head. Rides on the script-analysis toggle, since it
+# feeds the same deep analysis; YUBEN_COMMENTS=0 switches it off.
+_MAX_COMMENT_VIDEOS = 10
+_COMMENTS_PER_VIDEO = 40
 
 
 class PipelineError(RuntimeError):
@@ -195,11 +202,42 @@ def _fetch_transcripts(video_ids: List[str]) -> Dict[str, Optional[str]]:
     except Exception as exc:  # pragma: no cover - dep/network guarded
         logger.warning("transcript fetch unavailable: %s", exc)
         return {vid: None for vid in video_ids}
+    from .params import active_market
+
     try:
-        return get_transcripts_batch(video_ids)
+        return get_transcripts_batch(
+            video_ids, list(active_market().transcript_languages)
+        )
     except Exception as exc:  # pragma: no cover - network guarded
         logger.warning("transcript batch failed: %s", exc)
         return {vid: None for vid in video_ids}
+
+
+def _comments_enabled() -> bool:
+    return (os.environ.get("YUBEN_COMMENTS") or "1").strip() not in ("0", "false", "off")
+
+
+def _fetch_comments(video_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+    """Best-effort top comments per video (audience demand). Never raises."""
+    if not video_ids:
+        return {}
+    try:
+        install_youtube_research_alias()
+        from youtube_research import youtube_api  # type: ignore
+    except Exception as exc:  # pragma: no cover - dep guarded
+        logger.warning("comment fetch unavailable: %s", exc)
+        return {}
+    fetch = getattr(youtube_api, "get_top_comments", None)
+    if fetch is None:
+        return {}
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for vid in video_ids:
+        try:
+            out[vid] = list(fetch(vid, _COMMENTS_PER_VIDEO) or [])
+        except Exception as exc:  # pragma: no cover - network guarded
+            logger.warning("comments for %s failed: %s", vid, exc)
+            out[vid] = []
+    return out
 
 
 def _validate_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -267,6 +305,13 @@ def run_pipeline(
         head_ids = [v["video_id"] for v in videos[: min(curated, _MAX_TRANSCRIPTS)]]
         transcripts = _fetch_transcripts(head_ids)
 
+    comments: Optional[Dict[str, List[Dict[str, Any]]]] = None
+    if params.analyze_scripts and _comments_enabled():
+        comment_ids = [
+            v["video_id"] for v in videos[: min(curated, _MAX_COMMENT_VIDEOS)]
+        ]
+        comments = _fetch_comments(comment_ids)
+
     count_key = "shorts" if params.fmt == "shorts" else "longform"
     kept_by_duration = int(
         raw.get("total_shorts" if params.fmt == "shorts" else "total_longform")
@@ -301,6 +346,7 @@ def run_pipeline(
             "kept": kept_by_duration,
             "after_outperformance": len(videos),
             "transcripts": transcripts,
+            "comments": comments,
         },
     }
     return videos, meta

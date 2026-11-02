@@ -43,6 +43,8 @@ from typing import Any, Callable, Dict, List, Mapping, Optional
 from uuid import uuid4
 
 from contracts.python.models import (
+    AudienceDemand,
+    EvidenceCheck,
     AgentResult,
     GamePlan,
     HistoryItem,
@@ -60,6 +62,7 @@ from contracts.python.models import (
 from app.store import history_store
 from app.store.db import utcnow_iso
 from app.verify.links import LinkVerifier, OEmbedVerifier, watch_url
+from app.verify.pubmed import EutilsLookup, PubMedLookup, search_url
 
 logger = logging.getLogger("yuben.verify")
 
@@ -151,6 +154,74 @@ def _meta_get(meta: Any, key: str, default: Any = None) -> Any:
     return getattr(meta, key, default)
 
 
+# --- Corpo Explicado fork ---------------------------------------------------
+_MAX_EVIDENCE_CHECKS = 8
+
+
+def _norm(text: str) -> str:
+    return " ".join((text or "").lower().split())
+
+
+def _verified_demand(
+    items: Optional[List[AudienceDemand]], index: Mapping[str, Any], meta: Any
+) -> Optional[List[AudienceDemand]]:
+    """Keep only ideas whose quoted comment really appears under that video.
+
+    The comment is the evidence that the audience asked for it, so an entry
+    whose comment cannot be found in what the pipeline fetched is dropped, the
+    same way a fabricated video_id is.
+    """
+    if items is None:
+        return None
+    pipeline = _meta_get(meta, "pipeline") or {}
+    fetched = pipeline.get("comments") if isinstance(pipeline, Mapping) else None
+    if not isinstance(fetched, Mapping):
+        return []
+    kept: List[AudienceDemand] = []
+    for item in items:
+        if item.video_id not in index:
+            continue
+        needle = _norm(item.comment)
+        if len(needle) < 8:
+            continue
+        haystack = [_norm(c.get("text", "")) for c in fetched.get(item.video_id) or []]
+        if any(needle in h for h in haystack):
+            kept.append(item)
+    return kept
+
+
+def _evidence_checks(
+    agent_result: AgentResult,
+    index: Mapping[str, Any],
+    lookup: Optional[PubMedLookup],
+    should_stop: Optional[Callable[[], bool]],
+) -> Optional[List[EvidenceCheck]]:
+    claims = agent_result.claims_to_check
+    if claims is None:
+        return None
+    checks: List[EvidenceCheck] = []
+    for claim in claims:
+        if claim.video_id not in index or not claim.pubmed_query.strip():
+            continue
+        if len(checks) >= _MAX_EVIDENCE_CHECKS:
+            break
+        hits: Optional[int] = None
+        pmids: List[str] = []
+        if lookup is not None and not (should_stop and should_stop()):
+            hits, pmids = lookup(claim.pubmed_query)
+        checks.append(
+            EvidenceCheck(
+                video_id=claim.video_id,
+                claim=claim.claim,
+                pubmed_query=claim.pubmed_query,
+                pubmed_hits=hits,
+                pmids=pmids,
+                search_url=search_url(claim.pubmed_query),
+            )
+        )
+    return checks
+
+
 def _verify_links(
     verifier: LinkVerifier,
     video_ids: List[str],
@@ -221,6 +292,7 @@ def assemble_and_verify(
     verify_links: bool = True,
     write_history: bool = True,
     should_stop: Optional[Callable[[], bool]] = None,
+    pubmed_lookup: Optional[PubMedLookup] = None,
 ) -> ResearchResult:
     """Join agent narrative to authoritative videos, verify links, validate.
 
@@ -290,6 +362,20 @@ def assemble_and_verify(
         ]
     game_plan: Optional[GamePlan] = agent_result.game_plan  # no video refs
 
+    # --- Corpo Explicado fork: comment-grounded ideas + PubMed checks ---------
+    audience_demand = _verified_demand(agent_result.audience_demand, index, meta)
+    own_lookup = False
+    if pubmed_lookup is None and verify_links and agent_result.claims_to_check:
+        pubmed_lookup = EutilsLookup()
+        own_lookup = True
+    try:
+        evidence_checks = _evidence_checks(
+            agent_result, index, pubmed_lookup, should_stop
+        )
+    finally:
+        if own_lookup and hasattr(pubmed_lookup, "close"):
+            pubmed_lookup.close()  # type: ignore[union-attr]
+
     # --- meta (deterministic run facts + agent-expanded keywords) -------------
     counts = dict(_meta_get(meta, "counts", {}) or {})
     counts["curated"] = len(top_videos)  # curated always reflects rendered count
@@ -320,6 +406,8 @@ def assemble_and_verify(
         script_analysis=script_analysis,
         title_formulas=title_formulas,
         game_plan=game_plan,
+        audience_demand=audience_demand,
+        evidence_checks=evidence_checks,
     )
 
     if write_history:

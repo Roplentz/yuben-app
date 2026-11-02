@@ -125,7 +125,9 @@ code fences) as your final message. It must match this shape:
   "title_analysis": <object|null>,
   "script_analysis": <object|null>,
   "title_formulas": <array|null>,
-  "game_plan": <object|null>
+  "game_plan": <object|null>,
+  "audience_demand": <array|null>,
+  "claims_to_check": <array|null>
 }
 
 Rules:
@@ -147,6 +149,16 @@ Rules:
 - game_plan: { "outline": [ {"t": "<timestamp, e.g. '0:00'>", "beat": "<what
   happens>"} ], "title_options": [ "..." ], "thumbnail_concepts": [ "..." ],
   "do": "<the one thing to do>", "dont": "<the one thing to avoid>" }.
+- audience_demand: [ { "video_id": "<11-char id the comment was posted on>",
+  "comment": "<an EXACT excerpt (at least a few words) copied from that
+  video's VIEWER COMMENTS below — do not paraphrase or translate>",
+  "question": "<the doubt or request the comment reveals>",
+  "pauta": "<a concrete video idea that answers it>" } ]. Entries whose
+  comment is not found verbatim under that video are discarded.
+- claims_to_check: [ { "video_id": "<11-char id>", "claim": "<a factual
+  health/body claim stated in that video's transcript>", "pubmed_query":
+  "<a short PubMed search in English, e.g. 'knuckle cracking osteoarthritis'>"
+  } ]. Give only the words — YuBen runs PubMed and attaches the counts.
 - Every key listed above is REQUIRED when its parent object is non-null. Emit
   the whole object with all its keys, or emit null — never a partial object,
   and never a key the shape above does not list.
@@ -172,6 +184,16 @@ def _toggles_block(filters: Dict[str, Any]) -> str:
             "snippets below."
             if filters["analyze_scripts"]
             else "Set script_analysis to null (the user did not request it)."
+        ),
+        "- Audience demand + evidence checks: %s" % scripts,
+        "  %s"
+        % (
+            "Include audience_demand (up to 10 ideas, each grounded in a real "
+            "comment from VIEWER COMMENTS; [] if there are none) and "
+            "claims_to_check (up to 8 health/body claims from the transcripts; "
+            "[] if none)."
+            if filters["analyze_scripts"]
+            else "Set audience_demand and claims_to_check to null."
         ),
     ]
     return "\n".join(lines)
@@ -349,6 +371,54 @@ def _transcripts_block(videos: List[Any], meta: Any, f: Dict[str, Any]) -> str:
     )
 
 
+_MAX_COMMENT_VIDEOS = 10
+_COMMENTS_PER_VIDEO_IN_PROMPT = 25
+_COMMENT_CHARS = 280
+
+
+def _comments_block(videos: List[Any], meta: Any, f: Dict[str, Any]) -> str:
+    """Top viewer comments for the head videos (audience demand only)."""
+    if not f["analyze_scripts"] or not isinstance(meta, dict):
+        return ""
+    comments = (meta.get("pipeline") or {}).get("comments")
+    if not isinstance(comments, dict):
+        return ""
+    lines: List[str] = []
+    for video in videos[:_MAX_COMMENT_VIDEOS]:
+        items = comments.get(video.video_id) or []
+        if not items:
+            continue
+        lines.append('- %s ("%s"):' % (video.video_id, video.title[:60]))
+        for c in items[:_COMMENTS_PER_VIDEO_IN_PROMPT]:
+            text = " ".join(str(c.get("text", "")).split())[:_COMMENT_CHARS]
+            if text:
+                lines.append("    • [%d likes] %s" % (int(c.get("likes") or 0), text))
+    if not lines:
+        return ""
+    return (
+        "VIEWER COMMENTS (most relevant first — mine them for unanswered "
+        "questions and requests; copy excerpts verbatim into audience_demand):\n"
+        + "\n".join(lines)
+    )
+
+
+def _language_line() -> str:
+    try:
+        from app.pipeline.params import active_market
+
+        market = active_market()
+    except Exception:  # pragma: no cover - defensive
+        return ""
+    if market.relevance_language == "pt":
+        return (
+            "LANGUAGE: write every narrative string (topic_title, summary, "
+            "analysis, formulas, game plan, pautas) in Brazilian Portuguese "
+            "(pt-BR). Keep video_ids, comment excerpts and pubmed_query exactly "
+            "as specified."
+        )
+    return ""
+
+
 def build_narrative_prompt(
     request: ResearchRequest,
     videos: List[Any],
@@ -374,6 +444,7 @@ def build_narrative_prompt(
     briefs = [_video_brief(v) for v in list(videos)[:limit]]
     videos_json = json.dumps(briefs, ensure_ascii=False)
     transcripts_block = _transcripts_block(list(videos), meta, f)
+    comments_block = _comments_block(list(videos), meta, f)
 
     parts = [
         "You are YuBen's YouTube research analyst. Do NOT run scripts, search the "
@@ -395,6 +466,8 @@ def build_narrative_prompt(
         "COLLECTED VIDEOS (authoritative — the ONLY valid video_id values, already "
         "ranked; curate the top %d):\n%s" % (f["max_results"], videos_json),
         transcripts_block,
+        comments_block,
+        _language_line(),
         _OUTPUT_CONTRACT,
         "Reminder: reference ONLY video_id values that appear in COLLECTED VIDEOS. "
         "Numbers and links come from YuBen, not from you — provide narrative only.",

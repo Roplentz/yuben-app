@@ -21,6 +21,7 @@ Pure + stdlib-only so it is trivially unit-testable without the network.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -66,7 +67,15 @@ _FORMAT_FILTER_LABEL = {
 # sink; they are not deleted. Undeclared channels sit in the middle so a blank
 # field never costs a good channel its place.
 #
-# Tune the research region by editing these two sets.
+# Tune the research region by editing the market profiles below. The active
+# profile comes from the ``YUBEN_MARKET`` environment variable and is read at
+# call time, so a test or a launcher can switch it without re-importing.
+#
+#   br     (default in this fork) — Brazilian Portuguese research: YouTube hints
+#          regionCode=BR / relevanceLanguage=pt, Brazilian channels first, then
+#          other Lusophone and core English-speaking channels, Portuguese
+#          transcripts preferred.
+#   global — upstream YuBen behaviour: US/UK/CA/AU/IE/NZ first, then Europe.
 CORE_ENGLISH_COUNTRIES = frozenset({"US", "GB", "CA", "AU", "IE", "NZ"})
 EUROPE_COUNTRIES = frozenset(
     {
@@ -75,15 +84,59 @@ EUROPE_COUNTRIES = frozenset(
         "SI", "EE", "LV", "LT", "LU", "MT", "CY", "UA", "RS",
     }
 )
+LUSOPHONE_COUNTRIES = frozenset({"PT", "AO", "MZ", "CV", "GW", "ST", "TL"})
 
-# Sort tiers — lower sorts first.
+
+@dataclass(frozen=True)
+class Market:
+    """One research market: search hints, region tiers and transcript languages."""
+
+    id: str
+    region_code: str
+    relevance_language: str
+    core: frozenset
+    secondary: frozenset
+    transcript_languages: tuple
+    label: str  # how the ranking label names the preferred channels
+
+
+MARKETS: Dict[str, Market] = {
+    "br": Market(
+        id="br",
+        region_code="BR",
+        relevance_language="pt",
+        core=frozenset({"BR"}),
+        secondary=LUSOPHONE_COUNTRIES | CORE_ENGLISH_COUNTRIES,
+        transcript_languages=("pt", "pt-BR", "pt-PT", "en", "en-US"),
+        label="Brazilian channels",
+    ),
+    "global": Market(
+        id="global",
+        region_code="US",
+        relevance_language="en",
+        core=CORE_ENGLISH_COUNTRIES,
+        secondary=EUROPE_COUNTRIES,
+        transcript_languages=("en", "en-US", "en-GB"),
+        label="US/Europe channels",
+    ),
+}
+DEFAULT_MARKET = "br"
+
+
+def active_market() -> Market:
+    """The market selected by ``YUBEN_MARKET`` (unknown values fall back)."""
+    key = (os.environ.get("YUBEN_MARKET") or DEFAULT_MARKET).strip().lower()
+    return MARKETS.get(key, MARKETS[DEFAULT_MARKET])
+
+
+# Sort tiers — lower sorts first. (REGION_EUROPE keeps its upstream name; it is
+# the market's secondary tier.)
 REGION_CORE = 0
 REGION_EUROPE = 1
 REGION_UNKNOWN = 2
 REGION_OTHER = 3
 
-# The search hints handed to the YouTube API. Soft signals; the tiering above is
-# what actually shapes the table.
+# Upstream names kept for importers; the live values come from active_market().
 DEFAULT_REGION_CODE = "US"
 DEFAULT_RELEVANCE_LANGUAGE = "en"
 
@@ -93,9 +146,10 @@ def region_tier(country: str) -> int:
     c = (country or "").strip().upper()
     if not c:
         return REGION_UNKNOWN
-    if c in CORE_ENGLISH_COUNTRIES:
+    market = active_market()
+    if c in market.core:
         return REGION_CORE
-    if c in EUROPE_COUNTRIES:
+    if c in market.secondary:
         return REGION_EUROPE
     return REGION_OTHER
 
@@ -145,7 +199,7 @@ def _ranking_label(outperformance: str, vsr_floor: Optional[float]) -> str:
         base = f"VSR ≥ {vsr_floor:g}×, ranked by views"
     else:
         base = "by views; VSR shown"
-    return f"{base} — US/Europe channels first, promoted excluded"
+    return f"{base} — {active_market().label} first, promoted excluded"
 
 
 def map_request_to_params(
@@ -190,9 +244,9 @@ def map_request_to_params(
         filter_label=_FORMAT_FILTER_LABEL.get(fmt, fmt),
         ranking_label=_ranking_label(outperformance, vsr_floor),
         vsr_floor=vsr_floor,
-        region_code=str(get("region_code", DEFAULT_REGION_CODE) or ""),
+        region_code=str(get("region_code", None) or active_market().region_code),
         relevance_language=str(
-            get("relevance_language", DEFAULT_RELEVANCE_LANGUAGE) or ""
+            get("relevance_language", None) or active_market().relevance_language
         ),
     )
 

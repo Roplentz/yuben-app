@@ -58,7 +58,7 @@ def get_transcript(video_id: str, languages: list = None) -> Optional[str]:
         return None
 
 
-def get_transcripts_batch(video_ids: list) -> dict:
+def get_transcripts_batch(video_ids: list, languages: list = None) -> dict:
     """Fetch transcripts for multiple videos.
 
     Processes videos sequentially with a small delay between requests
@@ -74,7 +74,7 @@ def get_transcripts_batch(video_ids: list) -> dict:
     """
     results = {}
     for i, video_id in enumerate(video_ids):
-        results[video_id] = get_transcript(video_id)
+        results[video_id] = get_transcript(video_id, languages)
         # Small delay between requests to be polite to YouTube
         if i < len(video_ids) - 1:
             time.sleep(0.2)

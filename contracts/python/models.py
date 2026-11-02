@@ -160,6 +160,42 @@ class GamePlan(Strict):
     dont: str
 
 
+# --- Corpo Explicado fork: audience demand + evidence checks ----------------
+class AudienceDemand(Strict):
+    """A content idea grounded in a real viewer comment.
+
+    ``comment`` must be copied from the comments the pipeline fetched for
+    ``video_id``; the backend drops any entry whose comment it cannot find there.
+    """
+
+    video_id: str = Field(pattern=r"^[A-Za-z0-9_-]{11}$")
+    comment: str
+    question: str
+    pauta: str
+
+
+class AgentClaim(Strict):
+    """A health claim made in a video, with the PubMed query to check it.
+
+    The agent supplies the words only; the backend runs the PubMed search and
+    attaches every count and PMID.
+    """
+
+    video_id: str = Field(pattern=r"^[A-Za-z0-9_-]{11}$")
+    claim: str
+    pubmed_query: str
+
+
+class EvidenceCheck(Strict):
+    video_id: str = Field(pattern=r"^[A-Za-z0-9_-]{11}$")
+    claim: str
+    pubmed_query: str
+    # None when PubMed was not reached (offline, rate limit, verify skipped).
+    pubmed_hits: Optional[int] = Field(default=None, ge=0)
+    pmids: List[str] = Field(default_factory=list)
+    search_url: str
+
+
 class ResultMeta(Strict):
     window: str
     filter: str
@@ -186,6 +222,8 @@ class ResearchResult(Strict):
     script_analysis: Optional[ScriptAnalysis]
     title_formulas: Optional[List[TitleFormula]] = None
     game_plan: Optional[GamePlan] = None
+    audience_demand: Optional[List[AudienceDemand]] = None
+    evidence_checks: Optional[List[EvidenceCheck]] = None
 
 
 # --- Config / Adapter / History -------------------------------------------
@@ -245,3 +283,5 @@ class AgentResult(Strict):
     script_analysis: Optional[ScriptAnalysis] = None
     title_formulas: Optional[List[TitleFormula]] = None
     game_plan: Optional[GamePlan] = None
+    audience_demand: Optional[List[AudienceDemand]] = None
+    claims_to_check: Optional[List[AgentClaim]] = None

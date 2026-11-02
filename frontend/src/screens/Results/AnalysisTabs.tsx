@@ -10,7 +10,13 @@ import {
   TableRow,
   TableScroll,
 } from '@/components/ui/table'
-import type { ScriptAnalysis, TitleAnalysis, Video } from '@/lib/types'
+import type {
+  AudienceDemand,
+  EvidenceCheck,
+  ScriptAnalysis,
+  TitleAnalysis,
+  Video,
+} from '@/lib/types'
 
 // --- shared building blocks ------------------------------------------------
 
@@ -189,6 +195,120 @@ function ScriptAnalysisView({ data, videos }: { data: ScriptAnalysis; videos: Vi
   )
 }
 
+// --- Pautas & Evidências (Corpo Explicado fork) ------------------------------
+
+function VideoLink({ video }: { video: Video | undefined }) {
+  if (!video) return <span className="text-brand-grey">—</span>
+  return (
+    <a
+      href={video.watch_url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="font-medium text-brand-link hover:underline"
+      title={video.title}
+    >
+      Vídeo
+    </a>
+  )
+}
+
+function DemandEvidenceView({
+  demand,
+  checks,
+  videos,
+}: {
+  demand: AudienceDemand[] | null
+  checks: EvidenceCheck[] | null
+  videos: Video[]
+}) {
+  const byId: Record<string, Video> = {}
+  for (const v of videos) byId[v.video_id] = v
+
+  return (
+    <div className="flex flex-col gap-8">
+      <AnalysisSection title="Pautas pedidas pela audiência">
+        {demand && demand.length > 0 ? (
+          <div className="overflow-hidden rounded-[12px] border border-border text-sm">
+            {demand.map((item, i) => (
+              <div key={i} className="flex flex-col gap-1.5 border-b border-border px-4 py-3 last:border-0">
+                <div className="font-medium">{item.pauta}</div>
+                <div className="text-brand-grey">{item.question}</div>
+                <div className="flex items-baseline justify-between gap-4">
+                  <blockquote className="border-l-2 border-border pl-3 italic text-brand-muted">
+                    “{item.comment}”
+                  </blockquote>
+                  <VideoLink video={byId[item.video_id]} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-brand-muted">
+            Nenhuma pauta confirmada por comentários reais nesta pesquisa.
+          </p>
+        )}
+      </AnalysisSection>
+
+      <AnalysisSection title="Checagem de evidência (PubMed)">
+        {checks && checks.length > 0 ? (
+          <TableScroll className="rounded-[12px] border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="min-w-[260px]">Afirmação no vídeo</TableHead>
+                  <TableHead className="min-w-[200px]">Busca</TableHead>
+                  <TableHead className="text-right">Artigos</TableHead>
+                  <TableHead className="text-right">Vídeo</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {checks.map((c, i) => (
+                  <TableRow key={i}>
+                    <TableCell className="align-top font-medium">{c.claim}</TableCell>
+                    <TableCell className="align-top text-brand-grey">
+                      <a
+                        href={c.search_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-brand-link hover:underline"
+                      >
+                        {c.pubmed_query}
+                      </a>
+                      {c.pmids && c.pmids.length > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-2 text-xs">
+                          {c.pmids.map((pmid) => (
+                            <a
+                              key={pmid}
+                              href={`https://pubmed.ncbi.nlm.nih.gov/${pmid}/`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-brand-link hover:underline"
+                            >
+                              PMID {pmid}
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="align-top whitespace-nowrap text-right tabular-nums text-brand-grey">
+                      {c.pubmed_hits == null ? '—' : c.pubmed_hits.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="align-top text-right">
+                      <VideoLink video={byId[c.video_id]} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableScroll>
+        ) : (
+          <p className="text-sm text-brand-muted">Nenhuma afirmação de saúde para checar.</p>
+        )}
+      </AnalysisSection>
+    </div>
+  )
+}
+
 // --- public component ------------------------------------------------------
 
 /**
@@ -202,13 +322,18 @@ function ScriptAnalysisView({ data, videos }: { data: ScriptAnalysis; videos: Vi
 export function AnalysisTabs({
   titleAnalysis,
   scriptAnalysis,
+  audienceDemand = null,
+  evidenceChecks = null,
   videos,
 }: {
   titleAnalysis: TitleAnalysis | null
   scriptAnalysis: ScriptAnalysis | null
+  audienceDemand?: AudienceDemand[] | null
+  evidenceChecks?: EvidenceCheck[] | null
   videos: Video[]
 }) {
-  if (!titleAnalysis && !scriptAnalysis) {
+  const hasDemand = audienceDemand !== null || evidenceChecks !== null
+  if (!titleAnalysis && !scriptAnalysis && !hasDemand) {
     return (
       <p className="text-sm text-brand-muted">
         No analysis was generated for this run — enable Title or Script analytics before running to
@@ -217,7 +342,7 @@ export function AnalysisTabs({
     )
   }
 
-  const defaultTab = titleAnalysis ? 'titles' : 'script'
+  const defaultTab = titleAnalysis ? 'titles' : scriptAnalysis ? 'script' : 'demand'
 
   return (
     <Tabs defaultValue={defaultTab}>
@@ -229,6 +354,10 @@ export function AnalysisTabs({
         <TabsTrigger value="script" disabled={!scriptAnalysis}>
           Script Analysis
           {!scriptAnalysis && <span className="ml-1 font-normal text-brand-grey">(off)</span>}
+        </TabsTrigger>
+        <TabsTrigger value="demand" disabled={!hasDemand}>
+          Pautas & Evidências
+          {!hasDemand && <span className="ml-1 font-normal text-brand-grey">(off)</span>}
         </TabsTrigger>
       </TabsList>
 
@@ -245,6 +374,16 @@ export function AnalysisTabs({
           <ScriptAnalysisView data={scriptAnalysis} videos={videos} />
         ) : (
           <p className="text-sm text-brand-muted">Script analysis was turned off for this run.</p>
+        )}
+      </TabsContent>
+
+      <TabsContent value="demand">
+        {hasDemand ? (
+          <DemandEvidenceView demand={audienceDemand} checks={evidenceChecks} videos={videos} />
+        ) : (
+          <p className="text-sm text-brand-muted">
+            Ative a análise de roteiro para minerar comentários e checar evidências.
+          </p>
         )}
       </TabsContent>
     </Tabs>
